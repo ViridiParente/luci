@@ -495,6 +495,26 @@ function randomid(num_bytes) {
 	return hexenc(data);
 }
 
+function pwreset_required(username) {
+	/* A last-change day of 0 in /etc/shadow flags the password as
+	 * "must be changed at next login". busybox passwd rewrites the
+	 * last-change day when a new password is set, so the flag clears
+	 * itself after a successful password change. */
+	if (!username)
+		return false;
+
+	let shadow = split(readfile('/etc/shadow') ?? '', '\n');
+
+	for (let line in shadow) {
+		let f = split(line, ':');
+
+		if (f[0] == username)
+			return (f[2] == '0');
+	}
+
+	return false;
+}
+
 function session_setup(user, pass, path) {
 	let timeout = uci.get('luci', 'sauth', 'sessiontime');
 	let login = ubus.call("session", "login", {
@@ -1043,8 +1063,20 @@ dispatch = function(_http, path) {
 				let cookie_name = (http.getenv('HTTPS') == 'on') ? 'sysauth_https' : 'sysauth_http',
 				    cookie_secure = (http.getenv('HTTPS') == 'on') ? '; secure' : '';
 
+				let target = (length(resolved.ctx.request_path) ? resolved.ctx.request_path : resolved.ctx.path);
+
+				/* Redirect to the password page when the account is flagged
+				 * as "must change password" in /etc/shadow. Logging out is
+				 * always allowed. */
+				if (pwreset_required(auth_user)) {
+					let page = join('-', target);
+
+					if (page != 'admin-system-admin' && page != 'admin-logout')
+						target = [ 'admin', 'system', 'admin' ];
+				}
+
 				http.header('Set-Cookie', `${cookie_name}=${session.sid}; path=${build_url()}; SameSite=strict; HttpOnly${cookie_secure}`);
-				http.redirect(build_url(...(length(resolved.ctx.request_path) ? resolved.ctx.request_path : resolved.ctx.path)));
+				http.redirect(build_url(...target));
 
 				return;
 			}
@@ -1054,6 +1086,19 @@ dispatch = function(_http, path) {
 				http.header('X-LuCI-Login-Required', 'yes');
 
 				return;
+			}
+
+			/* Redirect to the password page when the account is flagged
+			 * as "must change password" in /etc/shadow. Logging out is
+			 * always allowed. */
+			if (pwreset_required(session.data?.username)) {
+				let page = join('-', resolved.ctx.request_path ?? []);
+
+				if (page != 'admin-system-admin' && page != 'admin-logout') {
+					http.redirect(build_url('admin', 'system', 'admin'));
+
+					return;
+				}
 			}
 
 			resolved.ctx.authsession ??= session.sid;

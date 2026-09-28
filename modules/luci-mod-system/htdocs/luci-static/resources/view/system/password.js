@@ -26,6 +26,12 @@ var callSetPassword = rpc.declare({
 	expect: { result: 1 }
 });
 
+var callPwResetRequired = rpc.declare({
+	object: 'luci',
+	method: 'pwresetRequired',
+	expect: { result: false }
+});
+
 return view.extend({
 	checkPassword: function(section_id, value) {
 		var strength = document.querySelector('.cbi-value-description'),
@@ -73,12 +79,20 @@ return view.extend({
 			L.resolveDefault(fs.stat('/usr/sbin/uhttpd'), null),
 			fs.lines('/etc/passwd'),
 			uci.load('rpcd'),
-			uci.load('luci')
+			uci.load('luci'),
+			L.resolveDefault(callPwResetRequired(), false)
 		]);
 	},
 
-	render: function([has_uhttpd, passwd]) {
+	render: function([has_uhttpd, passwd, , , pwreset]) {
 		var m, s, o, rpcd;
+
+		if (pwreset)
+			ui.addNotification(null,
+				E('div', { 'class': 'alert-message warning' }, [
+					E('h4', _('Default password in use')),
+					E('p', _('This device is still using its factory-set password. Choose a new password now to secure the device.'))
+				]));
 
 		const known_unix_users = {};
 
@@ -117,6 +131,7 @@ return view.extend({
 				o.value(user, _('%s').format(user));
 			o.rmempty = false;
 			o.depends({ 'rpcd': '0' });
+			o.default = L.env.username;
 
 			o = s.option(form.Value, 'oldpw', _('Old Password'));
 			o.password = true;
@@ -128,6 +143,7 @@ return view.extend({
 			for (let user in known_unix_users)
 				o.value(user);
 			o.rmempty = false;
+			o.default = L.env.username;
 		}
 
 		o = s.option(form.Value, 'pw1', _('Password'));
