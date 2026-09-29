@@ -564,6 +564,26 @@ const methods = {
 		}
 	},
 
+	pwresetRequired: {
+		call: function(request) {
+			/* Check the flag for the calling user, derived from the
+			 * session identity rpcd attaches to every request. */
+			let user = request.info?.acl?.user;
+
+			if (!user)
+				return { result: false };
+
+			for (let line in split(readfile('/etc/shadow') ?? '', '\n')) {
+				let f = split(line, ':');
+
+				if (f[0] == user)
+					return { result: (f[2] == '0') };
+			}
+
+			return { result: false };
+		}
+	},
+
 	getBlockDevices: {
 		call: function() {
 			const block = popen('/sbin/block info 2>/dev/null');
